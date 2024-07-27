@@ -3,22 +3,19 @@ filesystem (e.g.: local, S3, GCS).
 """
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from pathlib import PurePosixPath
-from typing import Any, Union
+from typing import Any, Union, NoReturn
 
 import fsspec
-import plotly.io as pio
 from kedro.io.core import (
     AbstractVersionedDataset,
+    DatasetError,
     Version,
     get_filepath_str,
     get_protocol_and_path,
 )
 from plotly import graph_objects as go
-
-from kedro_datasets._typing import PlotlyPreview
 
 
 class HTMLDataset(
@@ -34,10 +31,10 @@ class HTMLDataset(
     .. code-block:: yaml
 
         scatter_plot:
-          type: plotly.JSONDataset
-          filepath: data/08_reporting/scatter_plot.json
+          type: plotly.HTMLDataset
+          filepath: data/08_reporting/scatter_plot.html
           save_args:
-            engine: auto
+            auto_open: False
 
     Example usage for the
     `Python API <https://kedro.readthedocs.io/en/stable/data/\
@@ -45,24 +42,20 @@ class HTMLDataset(
 
     .. code-block:: pycon
 
-        >>> from kedro_datasets.plotly import JSONDataset
+        >>> from kedro_datasets.plotly import HTMLDataset
         >>> import plotly.express as px
         >>>
         >>> fig = px.bar(x=["a", "b", "c"], y=[1, 3, 2])
-        >>> dataset = JSONDataset(filepath=tmp_path / "test.json")
+        >>> dataset = HTMLDataset(filepath=tmp_path / "test.html")
         >>> dataset.save(fig)
-        >>> reloaded = dataset.load()
-        >>> assert fig == reloaded
     """
 
-    DEFAULT_LOAD_ARGS: dict[str, Any] = {}
     DEFAULT_SAVE_ARGS: dict[str, Any] = {}
 
     def __init__(  # noqa: PLR0913
         self,
         *,
         filepath: str,
-        load_args: dict[str, Any] | None = None,
         save_args: dict[str, Any] | None = None,
         version: Version | None = None,
         credentials: dict[str, Any] | None = None,
@@ -77,13 +70,9 @@ class HTMLDataset(
                 If prefix is not provided `file` protocol (local filesystem) will be used.
                 The prefix should be any protocol supported by ``fsspec``.
                 Note: `http(s)` doesn't support versioning.
-            load_args: Plotly options for loading JSON files.
-                Here you can find all available arguments:
-                https://plotly.com/python-api-reference/generated/plotly.io.from_json.html#plotly.io.from_json
-                All defaults are preserved.
             save_args: Plotly options for saving JSON files.
                 Here you can find all available arguments:
-                https://plotly.com/python-api-reference/generated/plotly.io.write_json.html
+                https://plotly.com/python-api-reference/generated/plotly.io.write_html.html#plotly.io.write_html
                 All defaults are preserved.
             version: If specified, should be an instance of
                 ``kedro.io.core.Version``. If its ``load`` attribute is
@@ -103,7 +92,6 @@ class HTMLDataset(
                 This is ignored by Kedro, but may be consumed by users or external plugins.
         """
         _fs_args = deepcopy(fs_args) or {}
-        _fs_open_args_load = _fs_args.pop("open_args_load", {})
         _fs_open_args_save = _fs_args.pop("open_args_save", {})
         _credentials = deepcopy(credentials) or {}
 
@@ -124,36 +112,23 @@ class HTMLDataset(
         )
 
         # Handle default load and save arguments
-        self._load_args = deepcopy(self.DEFAULT_LOAD_ARGS)
-        if load_args is not None:
-            self._load_args.update(load_args)
         self._save_args = deepcopy(self.DEFAULT_SAVE_ARGS)
         if save_args is not None:
             self._save_args.update(save_args)
 
         _fs_open_args_save.setdefault("mode", "w")
-        self._fs_open_args_load = _fs_open_args_load
         self._fs_open_args_save = _fs_open_args_save
 
     def _describe(self) -> dict[str, Any]:
         return {
             "filepath": self._filepath,
             "protocol": self._protocol,
-            "load_args": self._load_args,
             "save_args": self._save_args,
             "version": self._version,
         }
 
-    # def _load(self) -> go.Figure | go.FigureWidget:
-    #     load_path = get_filepath_str(self._get_load_path(), self._protocol)
-    #
-    #     with self._fs.open(load_path, **self._fs_open_args_load) as fs_file:
-    #         # read_json doesn't work correctly with file handler, so we have to read
-    #         # the file, decode it manually and pass to the low-level from_json instead.
-    #         return pio.from_json(str(fs_file.read(), "utf-8"), **self._load_args)
-
-    def _load(self) -> None:
-        raise NotImplementedError
+    def _load(self) -> NoReturn:
+        raise DatasetError(f"Loading not supported for '{self.__class__.__name__}'")
 
     def _save(self, data: go.Figure) -> None:
         save_path = get_filepath_str(self._get_save_path(), self._protocol)
@@ -175,14 +150,3 @@ class HTMLDataset(
     def _invalidate_cache(self) -> None:
         filepath = get_filepath_str(self._filepath, self._protocol)
         self._fs.invalidate_cache(filepath)
-
-    # def preview(self) -> PlotlyPreview:
-    #     """
-    #     Generates a preview of the plotly dataset.
-    #
-    #     Returns:
-    #         dict: A dictionary containing the plotly data.
-    #     """
-    #     load_path = get_filepath_str(self._get_load_path(), self._protocol)
-    #     with self._fs.open(load_path, **self._fs_open_args_load) as fs_file:
-    #         return json.load(fs_file)

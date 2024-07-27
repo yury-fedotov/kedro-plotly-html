@@ -1,0 +1,3 @@
+time_series_chart:
+  type: kedro_plotly_html.kedro_datasets.plotly.HTMLDataset
+  filepath: "data/08_reporting/time_series_chart.html"
